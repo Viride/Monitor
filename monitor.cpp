@@ -23,51 +23,44 @@ class Monitor
 
   public:
     //void lock     //rząda sekcji krytycznej
-    void lock()
+    void Lock()
     {
         state = LOCKED;
     }
 
     //void unlock   //zwalnia sekcję krytyczną
-    void unlock()
+    void Unlock()
     {
         state = UNLOCKED;
     }
     //void put  //wkłada element
-    void put()
+    void Put()
     {
     }
     //void pop      //zdejmuje element
-    void pop()
+    void Pop()
     {
     }
 
-    void *listen()
+    void Listen()
     {
-        sleep(5);
         zmq::context_t context(1);
         zmq::socket_t subscriber(context, ZMQ_SUB);
         subscriber.connect("tcp://localhost:5555");
         subscriber.setsockopt(ZMQ_SUBSCRIBE, "", 0);
         zmq::message_t message;
-        printf("Zaczynam słuchać\n");
         while (GetState() != END)
         {
-            printf("State: %d\n", GetState());
             //Read envelope with address
             //subscriber.recv(&message);
-            printf("Odbieram\t");
             std::string address = s_recv(subscriber);
-            printf("Wciąż odbieram \t");
             std::string contents = s_recv(subscriber);
-            printf("Odebrałem\n");
             std::cout << "[" << address << "] " << contents << std::endl;
         }
         pthread_exit(NULL);
     }
-    void *send()
+    void Send()
     {
-        sleep(5);
         zmq::context_t context(1);
         zmq::socket_t publisher(context, ZMQ_PUB);
         publisher.bind("tcp://*:5555");
@@ -75,52 +68,55 @@ class Monitor
         while (GetState() != END)
         {
             printf("State: %d\n", GetState());
-            printf("Przed wysłaniem\t");
             s_sendmore(publisher, "B");
             s_send(publisher, "We would like to see this");
-            printf("Po wysłaniu\n");
             sleep(1);
         }
         pthread_exit(NULL);
+    }
+
+    static void *CallSend(void *p)
+    {
+        static_cast<Monitor*>(p)->Send();
+        return NULL;
+    }
+
+    static void *CallListen(void *p)
+    {
+        static_cast<Monitor*>(p)->Listen();
+        return NULL;
     }
 
     Monitor()
     {
         pool = new int[10];
         SetState(IDLE);
-        
+    }
+
+    void Initialize()
+    {
         printf("Initialized\n");
-        pid_t pid = fork();
-        printf("%d\n", pid);
-        if (pid == 0)
+        int rc = 0;
+        printf("main() : creating thread, 0\n");
+        rc = pthread_create(&threads[0], NULL, CallListen, this);
+        if (rc)
         {
-            listen();
+            cout << "Error:unable to create thread," << rc << endl;
+            exit(-1);
         }
-        else
+
+        printf("main() : creating thread, 1\n");
+        rc = pthread_create(&threads[1], NULL, CallSend, this);
+        if (rc)
         {
-            pid_t pid2 = fork();
-            if (pid2 == 0)
-            {
-                send();
-            }
+            cout << "Error:unable to create thread," << rc << endl;
+            exit(-1);
         }
     }
 
     ~Monitor()
     {
-        printf("Odpaliłem się");
         SetState(END);
-        ///CZEKANIE AŻ PROCESY SIĘ SKOŃCZĄ
-        // int status;
-        // do
-        // {
-        //     status = wait();
-        //     if (status == -1 && errno != ECHILD)
-        //     {
-        //         perror("Error during wait()");
-        //         abort();
-        //     }
-        // } while (status > 0);
     }
     int GetState()
     {
@@ -145,11 +141,10 @@ class Monitor
 int main()
 {
     Monitor monitor;
-    //sleep(2);
-    printf("%d\n", END);
-    monitor.SetState(END);
-    printf("Otrzymałem %d\n",monitor.GetState());
-    // free(monitor);
-    printf("jestem\n");
+    monitor.Initialize();
+    sleep(5);
+    // monitor.SetState(END);s
+    printf("Otrzymałem %d\n", monitor.GetState());
+    // printf("jestem\n");
     return 0;
 }

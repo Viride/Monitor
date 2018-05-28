@@ -3,6 +3,8 @@
 //#include <stdio.h>
 #include <unistd.h>
 #include <sstream>
+#include <atomic>
+#include <pthread.h>
 #include "zhelpers.hpp"
 //#include <zmq.hpp>
 //#include <zmqpp/zmqpp.hpp>
@@ -40,17 +42,18 @@ class Monitor
     {
     }
 
-    void listen()
+    void *listen()
     {
+        sleep(5);
         zmq::context_t context(1);
         zmq::socket_t subscriber(context, ZMQ_SUB);
         subscriber.connect("tcp://localhost:5555");
         subscriber.setsockopt(ZMQ_SUBSCRIBE, "", 0);
         zmq::message_t message;
         printf("Zaczynam słuchać\n");
-        while (state != END)
+        while (GetState() != END)
         {
-            printf("State: %d\n", state);
+            printf("State: %d\n", GetState());
             //Read envelope with address
             //subscriber.recv(&message);
             printf("Odbieram\t");
@@ -60,36 +63,32 @@ class Monitor
             printf("Odebrałem\n");
             std::cout << "[" << address << "] " << contents << std::endl;
         }
-        printf("słuchałem\n");
+        pthread_exit(NULL);
     }
-    void send()
+    void *send()
     {
+        sleep(5);
         zmq::context_t context(1);
         zmq::socket_t publisher(context, ZMQ_PUB);
         publisher.bind("tcp://*:5555");
 
-        while (state != END)
+        while (GetState() != END)
         {
-            printf("State: %d\n", state);
+            printf("State: %d\n", GetState());
             printf("Przed wysłaniem\t");
             s_sendmore(publisher, "B");
             s_send(publisher, "We would like to see this");
             printf("Po wysłaniu\n");
             sleep(1);
         }
+        pthread_exit(NULL);
     }
-
-    //zmq::socket_t publisher;
-    //zmq::socket_t subscriber, publisher;
 
     Monitor()
     {
         pool = new int[10];
-        state = IDLE;
-        //context = zmq::context_t(1);
-        //subscriber = zmq::socket_t(context, ZMQ_SUB);
-        //publisher = zmq::socket_t(context, ZMQ_PUB);
-
+        SetState(IDLE);
+        
         printf("Initialized\n");
         pid_t pid = fork();
         printf("%d\n", pid);
@@ -105,14 +104,12 @@ class Monitor
                 send();
             }
         }
-        //Monitor::publisher = zmq::socket(context, zmqpp::socket_type::publish);
-        // subscriber(context, zmqpp::socket_type::subscribe);
-        // publisher(context, zmqpp::socket_type::publish);
     }
+
     ~Monitor()
     {
         printf("Odpaliłem się");
-        state = END;
+        SetState(END);
         ///CZEKANIE AŻ PROCESY SIĘ SKOŃCZĄ
         // int status;
         // do
@@ -125,12 +122,18 @@ class Monitor
         //     }
         // } while (status > 0);
     }
-
-    volatile int state;
+    int GetState()
+    {
+        return Monitor::state.load();
+    }
+    void SetState(int n)
+    {
+        Monitor::state.store(n);
+    }
 
   private:
-    //static zmq::context_t context;
-    //zmq::message message_recv, message_send;
+    atomic<int> state;
+    pthread_t threads[2];
     int *pool;
     int i_get;
     int i_put;
@@ -142,8 +145,10 @@ class Monitor
 int main()
 {
     Monitor monitor;
-    sleep(2);
-    monitor.state = END;
+    //sleep(2);
+    printf("%d\n", END);
+    monitor.SetState(END);
+    printf("Otrzymałem %d\n",monitor.GetState());
     // free(monitor);
     printf("jestem\n");
     return 0;

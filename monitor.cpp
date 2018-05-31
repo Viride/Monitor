@@ -24,27 +24,39 @@
 #define TOKEN 2
 #define NEW 3
 #define NEW_RESPONSE 4
+#define PUT 5
+#define POP 6
 using namespace std;
 
 //void lock     //rząda sekcji krytycznej
 void Monitor::Lock()
 {
-
-    state = LOCKED;
+    if (GetState() == IDLE || GetState() == UNLOCKED)
+    {
+        SetState(LOCKED);
+    }
 }
 
 //void unlock   //zwalnia sekcję krytyczną
 void Monitor::Unlock()
 {
-    state = UNLOCKED;
+    if (GetState() == CS || GetState() == REQ_CS || GetState() == LOCKED)
+    {
+        SetState(UNLOCKED);
+    }
 }
 //void put  //wkłada element
 void Monitor::Put()
 {
+    while (!GetState() == CS)
+    {
+    }
 }
 //void pop      //zdejmuje element
 void Monitor::Pop()
 {
+    while(!GetState()==CS && count == sizeof(pool)/sizeof(pool[0]))
+    {}
 }
 
 void Monitor::Listen()
@@ -79,7 +91,7 @@ void Monitor::Send()
             Message mess = messages.back();
             messages.pop_back();
             snprintf((char *)message.data(), 512,
-            "%d %d %d %s", mess.Flag, mess.DestId, mess.SourceId, mess.Content);
+                     "%d %d %d %s", mess.Flag, mess.DestId, mess.SourceId, mess.Content);
             publisher.send(message);
         }
         // printf("State: %d\n", GetState());
@@ -97,9 +109,8 @@ inline Monitor::Monitor()
     SetState(IDLE);
     chrono::high_resolution_clock::time_point t2 = chrono::high_resolution_clock::now();
     chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t2 - t1);
-    double id = time_span.count()*10000000000;     
+    double id = time_span.count() * 10000000000;
     SetId((int)id);
-
 }
 
 inline Monitor::~Monitor()
@@ -111,7 +122,7 @@ void Monitor::Initialize()
 {
     printf("Initialized\n");
     int rc = 0;
-    cout<<"main() : creating thread, 0\n";
+    cout << "main() : creating thread, 0\n";
     rc = pthread_create(&threads[0], NULL, Monitor::CallListen, this);
     if (rc)
     {
@@ -156,6 +167,6 @@ int main()
     Monitor monitor3;
     Monitor monitor4;
     // printf("%d\n", monitor4.GetId());
-    
+
     return 0;
 }

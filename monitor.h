@@ -46,7 +46,7 @@ class Monitor
     int i_put;
     int count;
     vector<Message> messages;
-    vector<Connection> connections;
+    map<int, Connection> connections;
     map<int, int> Rn;
     //vector<int> Rn;
 };

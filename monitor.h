@@ -12,8 +12,8 @@ class Monitor
   public:
     void Lock();   //rząda sekcji krytycznej
     void Unlock(); //zwalnia sekcję krytyczną
-    void Put();    //wkłada element
-    void Pop();    //zdejmuje element
+    void Put(int n);    //wkłada element
+    int Pop();    //zdejmuje element
     inline Monitor(string fileName);
     inline ~Monitor();
     void Initialize();
@@ -36,6 +36,12 @@ class Monitor
     void SetState(int n);
     int GetId();
     void SetId(int n);
+    void AddToToken(int n);
+    int GetFromToken();
+    bool IsEmptyToken();
+    string VectorToString(vector<int> vec);
+    void StringToVector(string str);
+    void ClearToken();
     Message CreateMessage(int flag, int destID, int sourceId, string content);
     atomic<int> state;
     pthread_t threads[2];
@@ -45,8 +51,10 @@ class Monitor
     int i_get;
     int i_put;
     int count;
+    bool isToken;
     vector<Message> messages;
     map<int, Connection> connections;
     map<int, int> Rn;
+    vector<int> Token;
     //vector<int> Rn;
 };

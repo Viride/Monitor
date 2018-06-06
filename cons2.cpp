@@ -5,7 +5,7 @@
 
 int main()
 {
-    Monitor monitor1("setup1.txt");
+    Monitor monitor1("setup2.txt");
 
     monitor1.Initialize();
 

@@ -38,6 +38,7 @@ class Monitor
     void SetId(int n);
     void AddToToken(int n);
     int GetFromToken();
+    int GetTopFromToken();
     bool IsEmptyToken();
     string VectorToString(vector<int> vec);
     void StringToVector(string str);
@@ -49,7 +50,7 @@ class Monitor
     pthread_t threads[2];
     int Id;
     int Nmb;
-    int *pool;
+    int pool[10];
     int i_get;
     int i_put;
     int count;

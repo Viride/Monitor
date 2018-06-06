@@ -20,6 +20,7 @@
 #define CS 3
 #define UNLOCKED 4
 #define END 5
+#define WAITING 6;
 
 #define ALL 0
 
@@ -40,6 +41,7 @@ void Monitor::Lock()
     while (GetState() != IDLE && GetState() != UNLOCKED)
     {
         sleep(1);
+        cout << "Lock -> while -> State: " << GetState() << endl;
     };
     if (GetState() == IDLE || GetState() == UNLOCKED)
     {
@@ -51,6 +53,12 @@ void Monitor::Lock()
             messages.insert(messages.begin(), CreateMessage(WANT_CS, ALL, GetId(), to_string(Rn[GetId()])));
             SetState(REQ_CS);
             cout << "Lock -> Wysłałem wiadomość, że chcę CS" << endl;
+            while (hasToken != true)
+            {
+                sleep(1);
+                cout << "Lock -> czekam na token" << endl;
+            }
+            SetState(CS);
         }
         else
         {
@@ -69,11 +77,11 @@ void Monitor::Unlock()
         SetState(IDLE);
         cout << "Unlock -> State = IDLE" << endl;
     }
-
     if (!IsEmptyToken())
     {
         cout << "Unlock -> Przesyłam token" << endl;
-        messages.insert(messages.begin(), CreateMessage(TOKEN, GetFromToken(), GetId(), VectorToString(Token)));
+        int sendTo = GetTopFromToken();
+        messages.insert(messages.begin(), CreateMessage(TOKEN, sendTo, GetId(), VectorToString(Token)));
         ClearToken();
     }
     else
@@ -81,41 +89,56 @@ void Monitor::Unlock()
         cout << "Unlock -> Token został u mnie" << endl;
     }
 }
-//void put  //wkłada element
 void Monitor::Put(int n)
 {
     sleep(1);
     cout << "Put -> Czekam na state lub wolne miejsce" << endl;
-    while (GetState() != CS || count >= 10)
+    while (GetState() != CS || count == 10)
     {
         sleep(1);
         cout << "Put -> while -> State: " << GetState() << " Count: " << count << endl;
     }
     messages.insert(messages.begin(), CreateMessage(PUT, ALL, GetId(), to_string(n)));
-    cout << "Put -> włożyłem element: " << n << " Stan: " << n << endl;
+    pool[count] = n;
+    count++;
+    cout << "Put -> włożyłem element: " << n << " Stan: " << count << endl;
 }
-//void pop      //zdejmuje element
 
 int Monitor::Pop()
 {
     sleep(1);
     cout << "Pop -> Czekam na state lub cos w zbiorze" << endl;
-    while (GetState() != CS || count == -1)
+    int i=0;
+    while (GetState() != CS || count == 0)
     {
         sleep(1);
         cout << "Pop -> while -> State: " << GetState() << " Count: " << count << endl;
+        if(GetState()==CS && i==0)
+        {
+            i=1;
+            AddToToken(GetId());
+            int sendTo = GetTopFromToken();
+            messages.insert(messages.begin(), CreateMessage(TOKEN, sendTo, GetId(), VectorToString(Token)));
+            ClearToken();
+        }
     }
+    
     messages.insert(messages.begin(), CreateMessage(POP, ALL, GetId(), ""));
     count--;
-    cout << "Pop -> Wyjąłem: " << pool[count + 1] << " Stan: " << count << endl;
+    cout << "Pop -> Wyjąłem: " << pool[count] << " Stan: " << count << endl;
 
-    return pool[count + 1];
+    return pool[count];
 }
 
 Monitor::Monitor(string fileName)
 {
-    pool = new int[10];
     count = 0;
+    for (int i = 0; i < 10; i++)
+    {
+        pool[i] = 0;
+    }
+    i_get = 0;
+    i_put = 0;
     SetState(IDLE);
     SetParticipants(fileName);
     if (GetId() == 0)
@@ -126,22 +149,21 @@ Monitor::Monitor(string fileName)
 
 Monitor::~Monitor()
 {
+    sleep(4);
     SetState(END);
 }
 
 void Monitor::Initialize()
 {
-    printf("Initialized\n");
     int rc = 0;
-
-    cout << "main() : creating thread, Listen\n";
+    cout << "Intialize -> main() : creating thread, Listen\n";
     rc = pthread_create(&threads[0], NULL, Monitor::CallListen, this);
     if (rc)
     {
         cout << "Error:unable to create thread," << rc << endl;
         exit(-1);
     }
-    printf("main() : creating thread, Send\n");
+    printf("Intialize -> main() : creating thread, Send\n");
     rc = pthread_create(&threads[1], NULL, Monitor::CallSend, this);
     if (rc)
     {
@@ -149,9 +171,7 @@ void Monitor::Initialize()
         exit(-1);
     }
 
-    cout << "Moje ID: " << GetId() << endl;
-    //ADD NEW MESSAGE
-    //messages.insert(messages.begin(), CreateMessage(NEW, ALL, Id, "message"));
+    cout << "Intialize -> Moje ID: " << GetId() << endl;
 }
 
 void Monitor::SetParticipants(string fileName)
@@ -181,14 +201,13 @@ void Monitor::Listen()
     zmq::context_t context(1);
     zmq::socket_t subscriber(context, ZMQ_PULL);
     subscriber.bind(connections[GetId()].Recv);
-    zmq::message_t message;
+    int v = 0;
     Message mess;
     while (GetState() != END)
     {
-        subscriber.recv(&message);
-        std::istringstream iss(static_cast<char *>(message.data()));
-        iss >> mess.Flag >> mess.DestId >> mess.SourceId >> mess.Content;
-        cout << "Odebrałem " << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
+        string message = s_recv(subscriber);
+        mess = StringToMessage(message);
+        cout << "Listen -> Odebrałem " << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
 
         switch (mess.Flag)
         {
@@ -202,36 +221,38 @@ void Monitor::Listen()
             break;
 
         case TOKEN:
-            cout << "Listen -> TOKEN od " << mess.SourceId << endl;
-            SetState(CS);
-            StringToVector(mess.Content);
+            if (mess.DestId == GetId())
+            {
+                cout << "Listen -> TOKEN od " << mess.SourceId << endl;
+                hasToken = true;
+                StringToVector(mess.Content);
+                v = GetFromToken();
+            }
             break;
 
         case NEW:
             cout << "Listen -> NEW od " << mess.SourceId << endl;
-            //dodawanie do tabeli połączeń
             break;
 
         case NEW_RESPONSE:
             cout << "Listen -> NEW_RESPONSE od " << mess.SourceId << endl;
-            //nie wiem czy potrzebne
             break;
 
         case PUT:
-            cout << "Listen -> PUT od " << mess.SourceId;
+            cout << "Listen -> PUT od " << mess.SourceId << endl;
             pool[count] = stoi(mess.Content);
             count++;
-            cout << " Dodano: " << pool[count] << " Na miejscu: " << count - 1 << endl;
+            cout << "Listen -> PUT -> Dodano: " << pool[count - 1] << " Count: " << count << endl;
             break;
 
         case POP:
-            cout << "Listen -> TOKEN od " << mess.SourceId;
+            cout << "Listen -> POP od " << mess.SourceId << endl;
             count--;
-            cout << " Zabrano: " << pool[count + 1] << " Stan: " << count << endl;
+            cout << "Listen -> POP -> Zabrano: " << pool[count] << " Count: " << count << endl;
             break;
 
         case IGNORE:
-            cout << "Ignore message" << endl;
+            cout << "Listen -> Ignore message" << endl;
             break;
         }
     }
@@ -245,11 +266,12 @@ void Monitor::Send()
     {
         publisher.connect(x.second.Send);
     }
-    zmq::message_t message(512);
-    string text = "dummy";
-    zmq::message_t dummy(512);
-    snprintf((char *)dummy.data(), 512,
-             "%d %d %d %s", IGNORE, GetId(), GetId(), text.c_str());
+    // zmq::message_t message(512);
+    // string text = "dummy";
+    // zmq::message_t dummy2(512);
+    // snprintf((char *)dummy2.data(), 512,
+    //          "%d %d %d %s", IGNORE, GetId(), GetId(), text.c_str());
+    string dummy = MessageToString(CreateMessage(IGNORE, GetId(), GetId(), "dummy"));
     while (GetState() != END)
     {
         sleep(1);
@@ -257,23 +279,25 @@ void Monitor::Send()
         {
             Message mess = messages.back();
             messages.pop_back();
-            snprintf((char *)message.data(), 512,
-                     "%d %d %d %s", mess.Flag, mess.DestId, mess.SourceId, mess.Content.c_str());
+            // snprintf((char *)message.data(), 512,
+            //          "%d %d %d %s", mess.Flag, mess.DestId, mess.SourceId, mess.Content.c_str());
 
             for (int i = 0; i < connections.size(); i++)
             {
                 if (i == GetId())
                 {
-                    cout << "Wyslalem wiadomosci do: " << i << endl;
-                    publisher.send(dummy);
+                    // cout << "Wyslalem wiadomosci do: " << i << endl;
+                    s_send(publisher, dummy);
+                    //publisher.send(dummy);
                 }
                 else
                 {
-                    cout << "Wyslalem wiadomosci do: " << i << endl;
-                    publisher.send(message);
+                    // cout << "Wyslalem wiadomosci do: " << i << endl;
+                    s_send(publisher, MessageToString(mess));
+                    //publisher.send(message);
                 }
             }
-            cout << "Wysyłam " << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
+            cout << "Send -> Wysłałem " << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
         }
     }
     pthread_exit(NULL);
@@ -308,6 +332,12 @@ int Monitor::GetFromToken()
     return n;
 }
 
+int Monitor::GetTopFromToken()
+{
+    int n = Token.back();
+    return n;
+}
+
 bool Monitor::IsEmptyToken()
 {
     return Token.empty();
@@ -319,17 +349,21 @@ string Monitor::VectorToString(vector<int> vec)
     while (IsEmptyToken() == false)
     {
         str.append(to_string(GetFromToken()));
-        str.append(" ");
+        str.append(";");
     }
     return str;
 }
 
 void Monitor::StringToVector(string str)
 {
-    for (int i = 0; i < str.size(); i++)
+    int x = 0;
+    string str2;
+    while (str.size() > 0)
     {
-        AddToToken(str[i]);
-        i++;
+        x = str.find_first_of(";");
+        str2 = str.substr(0, x);
+        AddToToken(stoi(str2));
+        str.erase(0, x + 1);
     }
     hasToken = true;
 }
@@ -365,17 +399,17 @@ Message Monitor::StringToMessage(string str)
 {
     Message mess;
     int x = str.find_first_of(";");
-    string str2 = str.substr(0, x );
+    string str2 = str.substr(0, x);
     mess.Flag = stoi(str2);
-    str.erase(0, x+1);
+    str.erase(0, x + 1);
     x = str.find_first_of(";");
     str2 = str.substr(0, x);
     mess.DestId = stoi(str2);
-    str.erase(0, x+1);
+    str.erase(0, x + 1);
     x = str.find_first_of(";");
     str2 = str.substr(0, x);
     mess.SourceId = stoi(str2);
-    str.erase(0, x+1);
+    str.erase(0, x + 1);
     mess.Content = str;
     return mess;
 }

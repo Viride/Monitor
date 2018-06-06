@@ -42,6 +42,8 @@ class Monitor
     string VectorToString(vector<int> vec);
     void StringToVector(string str);
     void ClearToken();
+    string MessageToString(Message message);
+    Message StringToMessage(string str);
     Message CreateMessage(int flag, int destID, int sourceId, string content);
     atomic<int> state;
     pthread_t threads[2];

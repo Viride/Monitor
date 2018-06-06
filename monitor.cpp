@@ -351,11 +351,31 @@ Message Monitor::CreateMessage(int flag, int destId, int sourceId, string conten
 string Monitor::MessageToString(Message message)
 {
     string str;
+    str = to_string(message.Flag);
+    str.append(";");
+    str.append(to_string(message.DestId));
+    str.append(";");
+    str.append(to_string(message.SourceId));
+    str.append(";");
+    str.append(message.Content);
     return str;
 }
 
 Message Monitor::StringToMessage(string str)
 {
     Message mess;
+    int x = str.find_first_of(";");
+    string str2 = str.substr(0, x );
+    mess.Flag = stoi(str2);
+    str.erase(0, x+1);
+    x = str.find_first_of(";");
+    str2 = str.substr(0, x);
+    mess.DestId = stoi(str2);
+    str.erase(0, x+1);
+    x = str.find_first_of(";");
+    str2 = str.substr(0, x);
+    mess.SourceId = stoi(str2);
+    str.erase(0, x+1);
+    mess.Content = str;
     return mess;
 }

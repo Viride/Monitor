@@ -34,17 +34,24 @@ using namespace std;
 //void lock     //rząda sekcji krytycznej
 void Monitor::Lock()
 {
+    cout << "Lock -> Czekam na odpowiedni stan" << endl;
+    while (GetState() != IDLE && GetState() != UNLOCKED)
+    {
+    };
     if (GetState() == IDLE || GetState() == UNLOCKED)
     {
         SetState(LOCKED);
-        if (!isToken)
+        cout << "Lock -> State = LOCKED" << endl;
+        if (hasToken == false)
         {
             messages.insert(messages.begin(), CreateMessage(WANT_CS, ALL, GetId(), to_string(Rn[GetId()])));
             SetState(REQ_CS);
+            cout << "Lock -> Wysłałem wiadomość, że chcę CS" << endl;
         }
         else
         {
             SetState(CS);
+            cout << "Lock -> Mam CS" << endl;
         }
     }
 }
@@ -55,42 +62,59 @@ void Monitor::Unlock()
     if (GetState() == CS || GetState() == REQ_CS || GetState() == LOCKED)
     {
         SetState(IDLE);
+        cout << "Unlock -> State = IDLE" << endl;
     }
+    cout<<"Test"<<endl;
     if (!IsEmptyToken())
     {
+        cout<<"Test3"<<endl;
         messages.insert(messages.begin(), CreateMessage(TOKEN, GetFromToken(), GetId(), VectorToString(Token)));
+        cout << "Unlock -> Przesyłam token" << endl;
         ClearToken();
+    }
+    else
+    {
+        cout << "Unlock -> Token został u mnie" << endl;
     }
 }
 //void put  //wkłada element
 void Monitor::Put(int n)
 {
-    while (GetState() != CS || count == sizeof(pool) / sizeof(pool[0]))
+    sleep(1);
+    cout << "Put -> Czekam na state lub wolne miejsce"<< endl;
+    while (GetState() != CS || count == 10)
     {
     }
     messages.insert(messages.begin(), CreateMessage(PUT, ALL, GetId(), to_string(n)));
+    cout << "Put -> włożyłem element: " << n << " Stan: " << n << endl;
 }
 //void pop      //zdejmuje element
 
 int Monitor::Pop()
 {
+    cout << "Pop -> Czekam na state lub cos w zbiorze" << endl;
     while (GetState() != CS || count == -1)
     {
     }
     messages.insert(messages.begin(), CreateMessage(POP, ALL, GetId(), ""));
     count--;
+    cout << "Pop -> Wyjąłem: " << pool[count + 1] << " Stan: " << count << endl;
 
     return pool[count + 1];
 }
 
-inline Monitor::Monitor(string fileName)
+Monitor::Monitor(string fileName)
 {
     pool = new int[10];
     SetState(IDLE);
     SetParticipants(fileName);
+    if (GetId() == 0)
+    {
+        hasToken = true;
+    }
 }
 
-inline Monitor::~Monitor()
+Monitor::~Monitor()
 {
     SetState(END);
 }
@@ -115,8 +139,9 @@ void Monitor::Initialize()
         exit(-1);
     }
 
+    cout << "Moje ID: " << GetId() << endl;
     //ADD NEW MESSAGE
-    messages.insert(messages.begin(), CreateMessage(NEW, ALL, Id, "message"));
+    //messages.insert(messages.begin(), CreateMessage(NEW, ALL, Id, "message"));
 }
 
 void Monitor::SetParticipants(string fileName)
@@ -153,35 +178,41 @@ void Monitor::Listen()
         subscriber.recv(&message);
         std::istringstream iss(static_cast<char *>(message.data()));
         iss >> mess.Flag >> mess.DestId >> mess.SourceId >> mess.Content;
-        cout << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
+        cout << "Odebrałem " << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
 
         switch (mess.Flag)
         {
         case WANT_CS:
+            cout << "Listen -> WANT_CS od " << mess.SourceId << endl;
             if (Rn[mess.SourceId] < stoi(mess.Content))
             {
-                Rn[mess.SourceId]=stoi(mess.Content);
+                Rn[mess.SourceId] = stoi(mess.Content);
             }
             AddToToken(mess.SourceId);
             break;
         case TOKEN:
+            cout << "Listen -> TOKEN od " << mess.SourceId << endl;
             SetState(CS);
             StringToVector(mess.Content);
             break;
         case NEW:
+            cout << "Listen -> NEW od " << mess.SourceId << endl;
             //dodawanie do tabeli połączeń
             break;
 
         case NEW_RESPONSE:
+            cout << "Listen -> NEW_RESPONSE od " << mess.SourceId << endl;
             //nie wiem czy potrzebne
             break;
 
         case PUT:
             count++;
             pool[count] = stoi(mess.Content);
+            cout << "Listen -> PUT od " << mess.SourceId << " Dodano: " << pool[count] << " Na miejscu: " << count << endl;
             break;
         case POP:
             count--;
+            cout << "Listen -> TOKEN od " << mess.SourceId << " Zabrano: " << pool[count + 1] << " Stan: " << count << endl;
             break;
         }
         s_send(subscriber, "");
@@ -197,6 +228,7 @@ void Monitor::Send()
         publisher.connect(x.second.Send);
     }
     zmq::message_t message(512);
+    zmq::message_t retMess(25);
     while (GetState() != END)
     {
         sleep(1);
@@ -206,10 +238,17 @@ void Monitor::Send()
             messages.pop_back();
             snprintf((char *)message.data(), 512,
                      "%d %d %d %s", mess.Flag, mess.DestId, mess.SourceId, mess.Content.c_str());
+
+            for (int i = 0; i < connections.size(); i++)
+            {
+                if (i != GetId())
+                {
+                    cout<<"Wyslalem wiadomosci do: "<<i<<endl;
+                    publisher.send(message);
+                    publisher.recv(&retMess);
+                }
+            }
             cout << "Wysyłam " << mess.Flag << " " << mess.DestId << " " << mess.SourceId << " " << mess.Content << endl;
-            publisher.send(message);
-            cout << "Wysłałem" << endl;
-            publisher.recv(&message);
         }
     }
     pthread_exit(NULL);
@@ -246,6 +285,7 @@ int Monitor::GetFromToken()
 
 bool Monitor::IsEmptyToken()
 {
+    cout<<"Test2"<<endl;
     return Token.empty();
 }
 
@@ -265,12 +305,12 @@ void Monitor::StringToVector(string str)
         AddToToken(str[i]);
         i++;
     }
-    isToken = true;
+    hasToken = true;
 }
 void Monitor::ClearToken()
 {
     Token.clear();
-    isToken = false;
+    hasToken = false;
 }
 Message Monitor::CreateMessage(int flag, int destId, int sourceId, string content)
 {
@@ -280,23 +320,4 @@ Message Monitor::CreateMessage(int flag, int destId, int sourceId, string conten
     mess.SourceId = sourceId;
     mess.Content = content;
     return mess;
-}
-
-int main()
-{
-    Monitor monitor("setup0.txt");
-    Monitor monitor2("setup1.txt");
-    // Monitor monitor3("setup2.txt");
-    //Monitor monitor4("setup3.txt");
-    //Monitor monitor5("setup4.txt");
-
-    monitor.Initialize();
-    cout << endl
-         << "Zaczynam drugi: " << endl;
-    monitor2.Initialize();
-    //monitor3.Initialize();
-    //monitor4.Initialize();
-    sleep(5);
-
-    return 0;
 }

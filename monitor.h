@@ -14,8 +14,8 @@ class Monitor
     void Unlock(); //zwalnia sekcję krytyczną
     void Put(int n);    //wkłada element
     int Pop();    //zdejmuje element
-    inline Monitor(string fileName);
-    inline ~Monitor();
+    Monitor(string fileName);
+    ~Monitor();
     void Initialize();
 
   private:
@@ -51,7 +51,7 @@ class Monitor
     int i_get;
     int i_put;
     int count;
-    bool isToken;
+    bool hasToken;
     vector<Message> messages;
     map<int, Connection> connections;
     map<int, int> Rn;
